@@ -61,6 +61,7 @@ private:
     time_t last_measurement = 0;
     uint16_t co2 = 0;
     uint16_t tvoc = 0;
+    const uint32_t default_delay = 62500; // delay between write and read in microseconds
 
     MailboxInfo mailbox_info(Mailbox m) {
         // These values should correspond to the Mailbox values above.
@@ -102,7 +103,7 @@ private:
 
     void open_device();
 
-    std::unique_ptr<std::vector<uint8_t>> read_mailbox(Mailbox m);
+    std::unique_ptr<std::vector<uint8_t>> read_mailbox(Mailbox m, uint32_t delay_mys);
 
     void write_to_mailbox(Mailbox m, uint8_t *buffer, size_t buffer_len);
 

@@ -26,19 +26,19 @@ void BMP280::close_device() {
 }
 
 void BMP280::init() {
-    std::cout << "Resetting BMP280..." << std::endl;
+    std::cout << "[BMP280] Resetting BMP280..." << std::endl;
     reset();
     std::this_thread::sleep_for(std::chrono::seconds(3));
 
     auto id = read_id();
     if (id != 0x58) {
-        throw "Invalid device id!";
+        throw "[BMP280] Invalid device id!";
     }
 
-    std::cout << "Reading calibration data" << std::endl;
+    std::cout << "[BMP280] Reading calibration data" << std::endl;
     read_calibration_data();
 
-    std::cout << "Setting the measurement control register" << std::endl;
+    std::cout << "[BMP280] Setting the measurement control register" << std::endl;
     uint8_t temp_oversampling = 1; // x1 oversampling
     uint8_t pres_oversampling = 1; // x1 oversampling
     uint8_t power_mode = 3; // Normal mode
@@ -48,7 +48,7 @@ void BMP280::init() {
     uint8_t cmd[] = {0xf4, ctrl_meas_reg};
     write_data(cmd, 2);
 
-    std::cout << "Setting the configuration register" << std::endl;
+    std::cout << "[BMP280] Setting the configuration register" << std::endl;
     uint8_t t_standby = 1 << 2; // 500ms
     uint8_t iir_filter = 0; // disabled
     uint8_t spi_interface = 0; // 3-wire SPI interface is disabled
@@ -62,12 +62,12 @@ void BMP280::init() {
 void BMP280::open_device() {
     i2c_fd = open(i2c_dev_name.c_str(), O_RDWR);
     if (i2c_fd < 0) {
-        std::cerr << "Unable to open" << i2c_dev_name << ". " << strerror(errno) << std::endl;
+        std::cerr << "[BMP280] Unable to open" << i2c_dev_name << ". " << strerror(errno) << std::endl;
         throw 1;
     }
 
     if (ioctl(i2c_fd, I2C_SLAVE, ccs811_addr) < 0) {
-        std::cerr << "Failed to communicate with the device. " << strerror(errno) << std::endl;
+        std::cerr << "[BMP280] Failed to communicate with the device. " << strerror(errno) << std::endl;
         throw 1;
     }
 }
@@ -102,7 +102,7 @@ std::unique_ptr<std::vector<uint8_t>> BMP280::read_registers(uint8_t start, size
 
 void BMP280::write_data(uint8_t *buffer, size_t buffer_len) {
 #ifdef DBG
-    std::cerr << "\tWrite: ";
+    std::cerr << "\t[BMP280] Write: ";
     for (size_t i = 0; i < buffer_len; i++) {
         std::cerr << "0x" << hex << (int) buffer[i] << " ";
     }
@@ -110,12 +110,12 @@ void BMP280::write_data(uint8_t *buffer, size_t buffer_len) {
 
     auto write_c = write(i2c_fd, buffer, buffer_len);
     if (write_c < 0) {
-        std::cerr << "Unable to send command." << std::endl;
+        std::cerr << "[BMP280] Unable to send command." << std::endl;
         // TODO - Have better exceptions.
         throw 1;
     }
 #ifdef DBG
-    std::cerr << "  ... wrote " << write_c << " bytes." << std::endl;
+    std::cerr << "[BMP280]   ... wrote " << write_c << " bytes." << std::endl;
 #endif
 }
 

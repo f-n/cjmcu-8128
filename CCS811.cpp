@@ -4,6 +4,8 @@
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 
+// #define DBG
+
 CCS811::CCS811(std::string i2c_dev_name, uint8_t ccs811_addr)
         : i2c_dev_name(std::move(i2c_dev_name)),
           ccs811_addr(ccs811_addr) {
@@ -26,13 +28,14 @@ uint16_t CCS811::get_tvoc() {
 }
 
 void CCS811::init() {
-    std::cout << "[CCS811] hecking the hardware id..." << std::endl;
-    auto hw_id = read_mailbox(HW_ID);
+    std::cout << "[CCS811] checking the hardware id..." << std::endl;
+    auto hw_id = read_mailbox(HW_ID, default_delay);
     if (hw_id->front() != 0x81) {
         std::cerr << "[CCS811] Unrecognized hardware id 0x" << std::hex << (int) hw_id->front() << std::endl;
         exit(-1);
     }
 
+/*
     std::cout << "[CCS811] Resetting CCS811..." << std::endl;
     uint8_t reset_sequence[] = {0x11, 0xe5, 0x72, 0x8a};
     write_to_mailbox(SW_RESET, reset_sequence, 4);
@@ -40,47 +43,54 @@ void CCS811::init() {
     std::cout << "[CCS811] Sleeping for a second..." << std::endl;
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    auto hw_version = read_mailbox(HW_VERSION);
+    auto hw_version = read_mailbox(HW_VERSION, default_delay);
     char version_str[15];
     version_to_str(hw_version->front(), version_str);
     std::cout << "[CCS811] HW Version: " << version_str << std::endl;
 
-    auto fw_boot_ver = read_mailbox(FW_BOOT_VERSION);
+    auto fw_boot_ver = read_mailbox(FW_BOOT_VERSION, default_delay);
     version_to_str(fw_boot_ver->front(), version_str);
     std::cout << "[CCS811] FW Boot Version: " << version_str << "." << (int) fw_boot_ver->at(1) << std::endl;
 
-    auto fw_app_ver = read_mailbox(FW_APP_VERSION);
+    auto fw_app_ver = read_mailbox(FW_APP_VERSION, default_delay);
     version_to_str(fw_app_ver->front(), version_str);
     std::cout << "[CCS811] FW Application Version: " << version_str << "." << (int) fw_app_ver->at(1) << std::endl;
-
+*/
     std::cout << "[CCS811] Starting..." << std::endl;
     uint8_t buffer[] = {APP_START};
     write_data(buffer, 1);
+    std::this_thread::sleep_for(std::chrono::microseconds(default_delay));
 
+/*
     std::cout << "[CCS811] Configuring measurement mode to Mode 1 - Constant power mode, measuring every 1 sec."
               << std::endl;
     uint8_t measurement_mode[] = {1 << 4};
+*/
+    std::cout << "[CCS811] Configuring measurement mode to - Pulse heating mode IAQ measurement every 10 sec."
+              << std::endl;
+    uint8_t measurement_mode[] = {0x20};
     write_to_mailbox(MEAS_MODE, measurement_mode, 1);
+    std::this_thread::sleep_for(std::chrono::microseconds(15000));
 }
 
 void CCS811::open_device() {
     i2c_fd = open(i2c_dev_name.c_str(), O_RDWR);
     if (i2c_fd < 0) {
-        std::cerr << "Unable to open" << i2c_dev_name << ". " << strerror(errno) << std::endl;
+        std::cerr << "[CCS811] Unable to open" << i2c_dev_name << ". " << strerror(errno) << std::endl;
         throw 1;
     }
 
     if (ioctl(i2c_fd, I2C_SLAVE, ccs811_addr) < 0) {
-        std::cerr << "Failed to communicate with the device. " << strerror(errno) << std::endl;
+        std::cerr << "[CCS811] Failed to communicate with the device. " << strerror(errno) << std::endl;
         throw 1;
     }
 }
 
-std::unique_ptr<std::vector<uint8_t>> CCS811::read_mailbox(CCS811::Mailbox m) {
+std::unique_ptr<std::vector<uint8_t>> CCS811::read_mailbox(CCS811::Mailbox m, uint32_t delay_mys=0) {
     auto mbox_info = mailbox_info(m);
 
     if (!mbox_info.readable) {
-        std::cerr << "Mailbox is not writeable!" << std::endl;
+        std::cerr << "[CCS811] Mailbox is not writeable!" << std::endl;
         // TODO
         throw 1;
     }
@@ -88,24 +98,27 @@ std::unique_ptr<std::vector<uint8_t>> CCS811::read_mailbox(CCS811::Mailbox m) {
     // Select the mailbox.
     uint8_t mailbox_id_buf[] = {mbox_info.id};
     write_data(mailbox_id_buf, 1);
+    if (delay_mys > 0) {
+        std::this_thread::sleep_for(std::chrono::microseconds(delay_mys));
+    }
 
     size_t buffer_len = mbox_info.size;
     auto *read_buffer = new uint8_t[buffer_len];
     auto bytes_read = read(i2c_fd, read_buffer, buffer_len);
     if (bytes_read != buffer_len) {
-        std::cerr << "Failed to read from the device. Bytes read: " << bytes_read << std::endl;
+        std::cerr << "[CCS811] Failed to read from the device. Bytes read: " << bytes_read << std::endl;
         // TODO - Have better exceptions.
         throw 1;
     }
 
     auto result = std::make_unique<std::vector<uint8_t>>();
 #ifdef DBG
-    std::cerr << "Read: ";
+    std::cerr << "[CCS811] Read: ";
 #endif
     for (size_t i = 0; i < mbox_info.size; i++) {
         result->push_back(read_buffer[i]);
 #ifdef DBG
-        std::cerr << "0x" << hex << (int)read_buffer[i] << " ";
+        std::cerr << "0x" << std::hex << (int)read_buffer[i] << " ";
 #endif
     }
 #ifdef DBG
@@ -117,25 +130,31 @@ std::unique_ptr<std::vector<uint8_t>> CCS811::read_mailbox(CCS811::Mailbox m) {
 }
 
 void CCS811::read_sensors() {
-    auto status = read_mailbox(STATUS);
+    auto status = read_mailbox(STATUS, default_delay);
     // Check if the sensor is ready for a read.
     if (!(status->front() & 8)) {
-        std::cerr << "Device isn't ready yet." << std::endl;
+        std::cerr << "[CCS811] Device isn't ready yet." << std::endl;
         return;
     }
 
     if ((status->front() & 1) != 0) {
-        auto error_register = read_mailbox(ERROR_ID);
+        auto error_register = read_mailbox(ERROR_ID, default_delay);
         std::cerr << "[CCS811] Error detected. Error register: " << std::hex << error_register->front() << std::endl;
         return;
     }
 
+    if ((status->front() & 0x08) != 8) {
+        std::cerr << "[CCS811] No new samples are ready. Status register: " << std::hex << int(status->front()) << std::endl;
+        return;
+    }
+
+    std::this_thread::sleep_for(std::chrono::microseconds(15000));
     auto data = read_mailbox(ALG_RESULT_DATA);
     int status_byte = data->at(4);
     int err_byte = data->at(5);
 
     if (status_byte != 0x98) {
-        std::cerr << "[CCS811] Sensor wasn't ready. Not updatingmeasurements." << std::endl;
+        std::cerr << "[CCS811] Sensor wasn't ready (0x" << std::hex << status_byte << "). Not updatingmeasurements." << std::endl;
         return;
     }
 
@@ -157,28 +176,28 @@ void CCS811::read_sensors() {
 
 void CCS811::write_data(uint8_t *buffer, size_t buffer_len) {
 #ifdef DBG
-    std::cout << "Write: ";
+    std::cout << "[CCS811] Write: ";
      for (size_t i = 0; i < buffer_len; i++) {
-      std::cout << "0x" << hex << (int)buffer[i] << " ";
+      std::cout << "0x" << std::hex << (int)buffer[i] << " ";
      }
     std::cout << std::endl;
 #endif
 
     auto write_c = write(i2c_fd, buffer, buffer_len);
     if (write_c < 0) {
-        std::cerr << "Unable to send command." << std::endl;
+        std::cerr << "[CCS811] Unable to send command." << std::endl;
         // TODO - Have better exceptions.
         throw 1;
     }
 #ifdef DBG
-    std::cout << "  ... wrote " << write_c << " bytes." << std::endl;
+    std::cout << "[CCS811]   ... wrote " << write_c << " bytes." << std::endl;
 #endif
 }
 
 void CCS811::write_to_mailbox(CCS811::Mailbox m, uint8_t *buffer, size_t buffer_len) {
     auto mbox_info = mailbox_info(m);
     if (!mbox_info.writeable) {
-        std::cerr << "Mailbox is not writeable!" << std::endl;
+        std::cerr << "[CCS811] Mailbox is not writeable!" << std::endl;
         // TODO
         throw 1;
     }
