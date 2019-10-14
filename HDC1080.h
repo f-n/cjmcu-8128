@@ -28,6 +28,7 @@ public:
 	    HDC1080_RESOLUTION_11BIT,
 	    HDC1080_RESOLUTION_14BIT,       
     };
+    uint8_t verbose = 0;
 
     float measure_humidity();
     float measure_temperature();
@@ -35,9 +36,9 @@ public:
     uint16_t get_device_id();
     uint16_t get_manufacturer_id();
     uint32_t get_serial_number();
-    void set_resolution(enum MeasurementResolution res_temperture, enum MeasurementResolution res_humidity);
-    void heater_on();
-    void heater_off();
+    int set_resolution(enum MeasurementResolution res_temperture, enum MeasurementResolution res_humidity);
+    int heater_on();
+    int heater_off();
 
 private:
     const std::string i2c_dev_name;
@@ -55,19 +56,19 @@ private:
 
     std::unique_ptr<std::vector<uint8_t>> read_data(size_t buffer_size);
 
-    void read_deviceId();
+    int read_deviceId();
 
-    void read_manufacturerId();
+    int read_manufacturerId();
 
-    void read_serialNumber();
+    int read_serialNumber();
 
     uint16_t read_configRegister();
 
-    void write_configRegister(uint16_t config);
+    int write_configRegister(uint16_t config);
 
     void reset();
 
-    void write_data(uint8_t *buffer, size_t buffer_len);
+    int write_data(uint8_t *buffer, size_t buffer_len);
 };
 
 #endif //IAQ_HDC1080_H

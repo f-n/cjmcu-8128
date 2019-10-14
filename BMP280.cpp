@@ -26,7 +26,9 @@ void BMP280::close_device() {
 }
 
 void BMP280::init() {
-    std::cout << "[BMP280] Resetting BMP280..." << std::endl;
+    if (verbose) {
+        std::cout << "[BMP280] Resetting BMP280..." << std::endl;
+    }
     reset();
     std::this_thread::sleep_for(std::chrono::seconds(3));
 
@@ -35,10 +37,14 @@ void BMP280::init() {
         throw "[BMP280] Invalid device id!";
     }
 
-    std::cout << "[BMP280] Reading calibration data" << std::endl;
+    if (verbose) {
+        std::cout << "[BMP280] Reading calibration data" << std::endl;
+    }
     read_calibration_data();
 
-    std::cout << "[BMP280] Setting the measurement control register" << std::endl;
+    if (verbose) {
+        std::cout << "[BMP280] Setting the measurement control register" << std::endl;
+    }
     uint8_t temp_oversampling = 1; // x1 oversampling
     uint8_t pres_oversampling = 1; // x1 oversampling
     uint8_t power_mode = 3; // Normal mode
@@ -46,9 +52,13 @@ void BMP280::init() {
     auto ctrl_meas_reg = static_cast<uint8_t>(((temp_oversampling & 7) << 5) | ((pres_oversampling & 7) << 2) |
                                               (power_mode & 3));
     uint8_t cmd[] = {0xf4, ctrl_meas_reg};
-    write_data(cmd, 2);
+    if (write_data(cmd, 2) < 0) {
+        throw "[BMP280] unable to initialize";
+    }
 
-    std::cout << "[BMP280] Setting the configuration register" << std::endl;
+    if (verbose) {
+        std::cout << "[BMP280] Setting the configuration register" << std::endl;
+    }
     uint8_t t_standby = 1 << 2; // 500ms
     uint8_t iir_filter = 0; // disabled
     uint8_t spi_interface = 0; // 3-wire SPI interface is disabled
@@ -56,7 +66,10 @@ void BMP280::init() {
     auto config_reg = static_cast<uint8_t>(((t_standby & 7) << 5) | ((iir_filter & 7) << 2) | (spi_interface & 1));
     cmd[0] = 0xf5;
     cmd[1] = config_reg;
-    write_data(cmd, 2);
+
+    if (write_data(cmd, 2) < 0) {
+        throw "[BMP280] unable to initialize";
+    }
 }
 
 void BMP280::open_device() {
@@ -100,7 +113,7 @@ std::unique_ptr<std::vector<uint8_t>> BMP280::read_registers(uint8_t start, size
 }
 
 
-void BMP280::write_data(uint8_t *buffer, size_t buffer_len) {
+int BMP280::write_data(uint8_t *buffer, size_t buffer_len) {
 #ifdef DBG
     std::cerr << "\t[BMP280] Write: ";
     for (size_t i = 0; i < buffer_len; i++) {
@@ -112,11 +125,12 @@ void BMP280::write_data(uint8_t *buffer, size_t buffer_len) {
     if (write_c < 0) {
         std::cerr << "[BMP280] Unable to send command." << std::endl;
         // TODO - Have better exceptions.
-        throw 1;
+        return -1;
     }
 #ifdef DBG
     std::cerr << "[BMP280]   ... wrote " << write_c << " bytes." << std::endl;
 #endif
+    return 0;
 }
 
 void BMP280::read_calibration_data() {
@@ -135,14 +149,14 @@ void BMP280::read_calibration_data() {
     dig_P9 = (reg_data->at(23) << 8) | reg_data->at(22);
 }
 
-void BMP280::reset() {
+int BMP280::reset() {
     uint8_t cmd[] = {0xe0, 0xb6};
-    write_data(cmd, 2);
+    return write_data(cmd, 2);
 }
 
-void BMP280::set_ctrl_meas(uint8_t val) {
+int BMP280::set_ctrl_meas(uint8_t val) {
     uint8_t cmd[] = {0xf4, val};
-    write_data(cmd, 2);
+    return write_data(cmd, 2);
 }
 
 uint8_t BMP280::read_id() {

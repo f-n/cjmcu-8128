@@ -62,6 +62,6 @@ int main() {
 
         ccs811.set_env_data(relative_humidity, (t_hdc1080 + t_bmp20) / 2);
 
-        std::this_thread::sleep_for(std::chrono::seconds(60));
+        std::this_thread::sleep_for(std::chrono::seconds(20));
     }
 }

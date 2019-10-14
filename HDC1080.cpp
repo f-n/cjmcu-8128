@@ -28,13 +28,27 @@ void HDC1080::init() {
     uint16_t config;
     reset();
 
-    read_manufacturerId();
-    read_deviceId();
-    read_serialNumber();
+    if (read_manufacturerId() < 0) {
+        throw "[HDC1080] unable to get Manufacturer ID";
+    }
+    if (manufacturer_id != 0x5449) {
+        throw "[HDC1080] wrong Manufacturer ID";
+    }
+    if (read_deviceId() < 0) {
+        throw "[HDC1080] unable to get Device ID";
+    }
+    if (device_id != 0x1050) {
+        throw "[HDC1080] wrong Device ID";
+    }
+    if (read_serialNumber() < 0) {
+        throw "[HDC1080] unable to get Serial Number";
+    }
     config = read_configRegister();
 
-    std::cout << "[HDC1080] Manufacturer ID: 0x" << std::hex << manufacturer_id << ", Device ID: 0x" << device_id;
-    std::cout << ", Serial Nr: 0x" << serial_number << ", Configuration Register: 0x" << config << std::endl;
+    if (verbose) {
+        std::cout << "[HDC1080] Manufacturer ID: 0x" << std::hex << manufacturer_id << ", Device ID: 0x" << device_id;
+        std::cout << ", Serial Nr: 0x" << serial_number << ", Configuration Register: 0x" << config << std::endl;
+    }
 }
 
 void HDC1080::open_device() {
@@ -62,7 +76,7 @@ uint32_t HDC1080::get_serial_number() {
     return serial_number;
 }
 
-void HDC1080::write_data(uint8_t *buffer, size_t buffer_len) {
+int HDC1080::write_data(uint8_t *buffer, size_t buffer_len) {
 #ifdef DBG
     std::cout << "[HDC1080] Write: ";
     for (size_t i = 0; i < buffer_len; i++) {
@@ -75,11 +89,12 @@ void HDC1080::write_data(uint8_t *buffer, size_t buffer_len) {
     if (write_c < 0) {
         std::cerr << "Unable to send command. Retcode: " << write_c << std::endl;
         // TODO - Have better exceptions.
-        throw 1;
+        return -1;
     }
 #ifdef DBG
     std::cout << "[HDC1080]   ... wrote " << write_c << " bytes." << std::endl;
 #endif
+    return 0;
 }
 
 std::unique_ptr<std::vector<uint8_t>> HDC1080::read_data(size_t buffer_size) {
@@ -118,46 +133,55 @@ void HDC1080::reset() {
     heater_off();
 }
 
-void HDC1080::read_deviceId() {
+int HDC1080::read_deviceId() {
     uint8_t cmd[] = {GET_DEVICE_ID};
-    write_data(cmd, 1);
-
+    if (write_data(cmd, 1) < 0) {
+        return -1;
+    }
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
 
     device_id = response->at(0) * 256 + response->at(1);
+    return 0;
 }
 
-void HDC1080::read_manufacturerId() {
+int HDC1080::read_manufacturerId() {
     uint8_t cmd[] = {GET_MANUFACTURER_ID};
-    write_data(cmd, 1);
-
+    if (write_data(cmd, 1) < 0) {
+        return -1;
+    }
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
 
     manufacturer_id = response->at(0) * 256 + response->at(1);
 }
 
-void HDC1080::read_serialNumber() {
+int HDC1080::read_serialNumber() {
     uint32_t serialNumber = 0;
     uint8_t cmd_h[] = {GET_SERIAL_NR_HIGH};
     uint8_t cmd_m[] = {GET_SERIAL_NR_MID};
     uint8_t cmd_l[] = {GET_SERIAL_NR_LOW};
-    write_data(cmd_h, 1);
+    if (write_data(cmd_h, 1) < 0) {
+        return -1;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
 
     serialNumber = response->at(0) * 256 + response->at(1);
 
-    write_data(cmd_m, 1);
+    if (write_data(cmd_m, 1) < 0) {
+        return -1;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     response = read_data(2);
 
     serialNumber = serialNumber * 256 + response->at(0) * 256 + response->at(1);
 
-    write_data(cmd_l, 1);
+    if (write_data(cmd_l, 1) < 0) {
+        return -1;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     response = read_data(2);
@@ -165,11 +189,15 @@ void HDC1080::read_serialNumber() {
     serialNumber = serialNumber * 256 + response->at(0) * 256 + response->at(1);
 
     serial_number = serialNumber;
+
+    return 0;
 }
 
 uint16_t HDC1080::read_configRegister() {
     uint8_t cmd[] = {CONGIGURATION_REGISTER};
-    write_data(cmd, 1);
+    if (write_data(cmd, 1) < 0) {
+        return 0;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
@@ -177,14 +205,17 @@ uint16_t HDC1080::read_configRegister() {
     return response->at(1) * 256 + response->at(0);
 }
 
-void HDC1080::write_configRegister(uint16_t config) {
+int HDC1080::write_configRegister(uint16_t config) {
     uint8_t cmd[] = {CONGIGURATION_REGISTER, (uint8_t)(config>>8), 0x00};
-    write_data(cmd, 3);
+    if (write_data(cmd, 3) < 0) {
+        return -1;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(15000));
+    return 0;
 }
 
-void HDC1080::set_resolution(enum MeasurementResolution res_temperture, enum MeasurementResolution res_humidity) {
+int HDC1080::set_resolution(enum MeasurementResolution res_temperture, enum MeasurementResolution res_humidity) {
     uint16_t config = read_configRegister();
     // temperature:
     config = (config & ~0x0400);
@@ -199,12 +230,14 @@ void HDC1080::set_resolution(enum MeasurementResolution res_temperture, enum Mea
         config |= 0x02;    
     }
    
-    write_configRegister(config);
+    return write_configRegister(config);
  }
 
 float HDC1080::measure_humidity() {
     uint8_t cmd[] = {HUMIDITY_REGISTER};
-    write_data(cmd, 1);
+    if (write_data(cmd, 1) < 0) {
+        return 0.0;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
@@ -216,7 +249,9 @@ float HDC1080::measure_humidity() {
 
 float HDC1080::measure_temperature() {
     uint8_t cmd[] = {TEMPERATURE_REGISTER};
-    write_data(cmd, 1);
+    if (write_data(cmd, 1) < 0) {
+        return 0.0;
+    }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
@@ -226,18 +261,18 @@ float HDC1080::measure_temperature() {
     return ((float)raw) *165/65536 - 40;
 }
 
-void HDC1080::heater_on() {
+int HDC1080::heater_on() {
     uint16_t config = read_configRegister();
 
     config = (config | 0x2000);
    
-    write_configRegister(config);
+    return write_configRegister(config);
  }
 
-void HDC1080::heater_off() {
+int HDC1080::heater_off() {
     uint16_t config = read_configRegister();
 
     config = (config  &  ~(0x2000));
    
-    write_configRegister(config);
+    return write_configRegister(config);
  }

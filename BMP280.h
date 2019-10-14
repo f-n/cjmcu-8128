@@ -13,6 +13,8 @@ public:
 
     ~BMP280();
 
+    uint8_t verbose = 0;
+
     double get_pressure();
 
     double get_temperature();
@@ -50,11 +52,11 @@ private:
 
     uint8_t read_id();
 
-    void reset();
+    int reset();
 
-    void set_ctrl_meas(uint8_t val);
+    int set_ctrl_meas(uint8_t val);
 
-    void write_data(uint8_t *buffer, size_t buffer_len);
+    int write_data(uint8_t *buffer, size_t buffer_len);
 };
 
 #endif //IAQ_BMP280_H

@@ -18,13 +18,13 @@ public:
 
     ~CCS811();
 
-    void read_sensors();
+    int read_sensors();
 
     uint16_t get_co2();
 
     uint16_t get_tvoc();
 
-    void set_env_data(double rel_humidity, double temperature);
+    int set_env_data(double rel_humidity, double temperature);
 
     struct MailboxInfo {
         uint8_t id;
@@ -54,6 +54,8 @@ public:
         APP_START = 0xF4
     };
 
+    uint8_t verbose = 0;
+
 private:
     const std::string i2c_dev_name;
     const uint8_t ccs811_addr;
@@ -61,7 +63,6 @@ private:
     time_t last_measurement = 0;
     uint16_t co2 = 0;
     uint16_t tvoc = 0;
-    const uint32_t default_delay = 62500; // delay between write and read in microseconds
 
     MailboxInfo mailbox_info(Mailbox m) {
         // These values should correspond to the Mailbox values above.
@@ -99,15 +100,15 @@ private:
         return mailbox_info[m];
     }
 
-    void init();
+    int init();
 
     void open_device();
 
-    std::unique_ptr<std::vector<uint8_t>> read_mailbox(Mailbox m, uint32_t delay_mys);
+    std::unique_ptr<std::vector<uint8_t>> read_mailbox(Mailbox m, uint32_t delay_mys=62500);
 
-    void write_to_mailbox(Mailbox m, uint8_t *buffer, size_t buffer_len);
+    int write_to_mailbox(Mailbox m, uint8_t *buffer, size_t buffer_len);
 
-    void write_data(uint8_t *buffer, size_t buffer_len);
+    int write_data(uint8_t *buffer, size_t buffer_len);
 
     int version_to_str(uint8_t version, char *buffer);
 
