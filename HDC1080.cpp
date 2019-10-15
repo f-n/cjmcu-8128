@@ -43,6 +43,9 @@ void HDC1080::init() {
     if (read_serialNumber() < 0) {
         throw "[HDC1080] unable to get Serial Number";
     }
+    heater_off();
+    int res = set_resolution(HDC1080_RESOLUTION_11BIT, HDC1080_RESOLUTION_11BIT);
+
     config = read_configRegister();
 
     if (verbose) {
@@ -123,14 +126,10 @@ std::unique_ptr<std::vector<uint8_t>> HDC1080::read_data(size_t buffer_size) {
     return result;
 }
 
-void HDC1080::reset() {
-/*
-    std::cout << "[HDC1080] Resetting HDC1080..." << std::endl;
-    uint8_t cmd[] = {RESET};
-    write_data(cmd, 1);
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-*/
-    heater_off();
+int HDC1080::reset() {
+    uint16_t config = read_configRegister();
+    config = (config | 0x8000); // set reset bit
+    return write_configRegister(config);
 }
 
 int HDC1080::read_deviceId() {
@@ -202,7 +201,7 @@ uint16_t HDC1080::read_configRegister() {
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
     auto response = read_data(2);
 
-    return response->at(1) * 256 + response->at(0);
+    return response->at(0) * 256 + response->at(1);
 }
 
 int HDC1080::write_configRegister(uint16_t config) {
@@ -220,23 +219,50 @@ int HDC1080::set_resolution(enum MeasurementResolution res_temperture, enum Meas
     // temperature:
     config = (config & ~0x0400);
     if (res_temperture == HDC1080_RESOLUTION_11BIT) {
-        config |= 0x01;
+        config |= 0x0400;
     }
     // humidity:
     config = (config & ~0x0300);
     if (res_humidity == HDC1080_RESOLUTION_11BIT) {
-        config |= 0x01;
+        config |= 0x0100;
     } else if (res_humidity == HDC1080_RESOLUTION_8BIT) {
-        config |= 0x02;    
+        config |= 0x0200;    
     }
    
     return write_configRegister(config);
  }
 
+int HDC1080::set_acquisition(uint8_t value) {
+    /* set acquisition bit in config register:
+        value  = 0 -> register set to 0 -> measurement mode: temperature OR humidity
+        value != 0 -> register set to 1 -> measurement mode: temperature AND humidity
+    */
+    uint16_t config = read_configRegister();
+    if (value == 0) {
+        config = (config & ~(0x1000));
+    } else {
+        config = (config | 0x1000);
+    }
+    return write_configRegister(config);
+}
+
+float HDC1080::get_recent_humidity() {
+    return recent_humidity;
+}
+
+float HDC1080::get_recent_temperature() {
+    return recent_temperature;
+}
+
 float HDC1080::measure_humidity() {
     uint8_t cmd[] = {HUMIDITY_REGISTER};
+
+    if (set_acquisition(0) < 0) {
+        return recent_humidity; // fallback to old value
+    }
+
     if (write_data(cmd, 1) < 0) {
-        return 0.0;
+        return recent_humidity; // fallback to old value
     }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
@@ -244,13 +270,18 @@ float HDC1080::measure_humidity() {
 
     uint16_t raw = response->at(0) * 256 + response->at(1);
 
-    return ((float)raw) *100/65536;
+    recent_humidity = ((float)raw) *100/65536;
+    return recent_humidity;
 }
 
 float HDC1080::measure_temperature() {
     uint8_t cmd[] = {TEMPERATURE_REGISTER};
+
+    if (set_acquisition(0) < 0) {
+        return recent_temperature; // fallback to old value
+    }
     if (write_data(cmd, 1) < 0) {
-        return 0.0;
+        return recent_temperature; // fallback to old value
     }
 
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
@@ -258,7 +289,30 @@ float HDC1080::measure_temperature() {
 
     uint16_t raw = response->at(0) * 256 + response->at(1);
 
-    return ((float)raw) *165/65536 - 40;
+    recent_temperature = ((float)raw) *165/65536 - 40;
+    return recent_temperature;
+}
+
+int HDC1080::measure_temperature_and_humidity() {
+    uint8_t cmd[] = {TEMPERATURE_REGISTER};
+
+    if (set_acquisition(1) < 0) {
+        return -1;
+    }
+    if (write_data(cmd, 1) < 0) {
+        return -1;
+    }
+
+    std::this_thread::sleep_for(std::chrono::microseconds(62500));
+    auto response = read_data(4);
+
+    uint16_t raw = response->at(0) * 256 + response->at(1);
+    recent_temperature = ((float)raw) *165/65536 - 40;
+
+    raw = response->at(2) * 256 + response->at(3);
+    recent_humidity = ((float)raw) *100/65536;
+
+    return 0;
 }
 
 int HDC1080::heater_on() {

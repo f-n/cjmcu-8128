@@ -48,9 +48,12 @@ int main() {
         ccs811.read_sensors();
         bmp280.measure();
 
-        float t_hdc1080 = hdc1080.measure_temperature();
+        if (hdc1080.measure_temperature_and_humidity() < 0) {
+            std::cout << "Error on HDC1080 in measurement" << std::endl;
+        }
         double t_bmp20 = bmp280.get_temperature();
-        float relative_humidity = hdc1080.measure_humidity();
+        float t_hdc1080 = hdc1080.get_recent_temperature();
+        float relative_humidity = hdc1080.get_recent_humidity();
         
         std::cout << "T(HDC1080): " << std::fixed << std::setprecision(2) << t_hdc1080 << "°C";
         std::cout << "\tT(BMP280): " << std::fixed << std::setprecision(2) << t_bmp20 << "°C";

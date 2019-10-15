@@ -153,7 +153,7 @@ int CCS811::read_sensors() {
 
     if ((status->front() & 1) != 0) {
         auto error_register = read_mailbox(ERROR_ID);
-        std::cerr << "[CCS811] Error detected. Error register: " << std::hex << error_register->front() << std::endl;
+        std::cerr << "[CCS811] Error detected. Error register: " << std::hex << int(error_register->front()) << std::endl;
         return -1;
     }
 

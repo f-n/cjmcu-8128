@@ -28,10 +28,13 @@ public:
 	    HDC1080_RESOLUTION_11BIT,
 	    HDC1080_RESOLUTION_14BIT,       
     };
-    uint8_t verbose = 0;
+    uint8_t verbose = 1;
 
     float measure_humidity();
     float measure_temperature();
+    float get_recent_humidity();
+    float get_recent_temperature();
+    int measure_temperature_and_humidity();
 
     uint16_t get_device_id();
     uint16_t get_manufacturer_id();
@@ -47,6 +50,8 @@ private:
     uint16_t device_id = 0;
     uint16_t manufacturer_id = 0;
     uint32_t serial_number = 0;
+    float recent_humidity = 0.0;
+    float recent_temperature = 0.0;
 
     void close_device();
 
@@ -66,7 +71,9 @@ private:
 
     int write_configRegister(uint16_t config);
 
-    void reset();
+    int set_acquisition(uint8_t value);
+
+    int reset();
 
     int write_data(uint8_t *buffer, size_t buffer_len);
 };
