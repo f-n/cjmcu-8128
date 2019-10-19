@@ -293,7 +293,7 @@ float HDC1080::measure_temperature() {
     return recent_temperature;
 }
 
-int HDC1080::measure_temperature_and_humidity() {
+int HDC1080::measure() {
     uint8_t cmd[] = {TEMPERATURE_REGISTER};
 
     if (set_acquisition(1) < 0) {

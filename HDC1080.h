@@ -28,13 +28,13 @@ public:
 	    HDC1080_RESOLUTION_11BIT,
 	    HDC1080_RESOLUTION_14BIT,       
     };
-    uint8_t verbose = 1;
+    uint8_t verbose = 0;
 
     float measure_humidity();
     float measure_temperature();
     float get_recent_humidity();
     float get_recent_temperature();
-    int measure_temperature_and_humidity();
+    int measure();
 
     uint16_t get_device_id();
     uint16_t get_manufacturer_id();
