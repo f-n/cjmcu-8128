@@ -329,7 +329,7 @@ int create_client_socket() {
 
 void print_help(void)
 {
-	printf("Usage: %s [OPTIONS]\n", app_name);
+	printf("Usage: %s [OPTION]\n", app_name);
 	printf("  Options:\n");
 	printf("   -?			Print this help\n");
 	printf("   -s			Stop/Terminate measurement daemon\n");
