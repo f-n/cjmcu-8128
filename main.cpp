@@ -329,7 +329,7 @@ int create_client_socket() {
 
 void print_help(void)
 {
-	printf("Usage: %s [OPTIONS]\n\n", app_name);
+	printf("Usage: %s [OPTIONS]\n", app_name);
 	printf("  Options:\n");
 	printf("   -?			Print this help\n");
 	printf("   -s			Stop/Terminate measurement daemon\n");
@@ -343,7 +343,6 @@ void print_help(void)
 	printf("   -a			Output mean of temperature from BMP200 and HDC1080\n");
 	printf("   -v			Output Summary of all available values\n");
 	printf("   -l			Output Summary of all available values in a loop\n");
-	printf("\n");
 }
 
 int client_loop(int sock, unsigned int loop_time) {
