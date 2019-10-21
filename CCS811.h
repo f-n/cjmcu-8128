@@ -20,8 +20,12 @@ public:
 
     int read_sensors();
 
+    /* The equivalent CO2 (eCO2) output range for CCS811 is from 400ppm to 8192ppm. 
+       Values outside this range are clipped. */
     uint16_t get_co2();
 
+    /* The Total Volatile Organic Compound (TVOC) output range for CCS811 is from 0ppb to 1187ppb. 
+       Values outside this range are clipped. */
     uint16_t get_tvoc();
 
     int set_env_data(double rel_humidity, double temperature);

@@ -24,16 +24,9 @@
 /*  data definitions...                                                    */
 /***************************************************************************/
 
-
 #define SOCKET_FILE "/tmp/cjmcu-8128"
-#define MEASURE_LOOP_INTERVAL	20	// in seconds (attention: too short will fail in CC811)
-#define DISPLAY_LOOP_INTERVAL	MEASURE_LOOP_INTERVAL	// client output loop
-
-static int running = 0;
-static int delay = 1;
-static int counter = 0;
-static char *app_name = NULL;
-static FILE *log_stream;
+#define MEASURE_LOOP_INTERVAL	30	// in seconds (attention: too short will fail in CC811, should be >=20)
+#define DISPLAY_LOOP_INTERVAL	MEASURE_LOOP_INTERVAL	// client output loop in case of option "-l"
 
 enum commands_to_server {
 	CMD_EXIT,
@@ -45,7 +38,7 @@ struct command_to_server {
 };
 
 struct response_from_server {
-	int status;
+	time_t server_start;// time of server start
 	time_t time;		// time stamp of measurement time
 	uint16_t co2;		// measured by CCS811
 	uint16_t tvoc;		// measured by CCS811
@@ -61,6 +54,8 @@ struct cjmcu {
     BMP280 *bmp280;
 };
 
+static char *app_name = NULL;
+
 /***************************************************************************/
 /*  server functions...                                                    */
 /***************************************************************************/
@@ -72,7 +67,7 @@ int init_response_data(struct response_from_server *rsp) {
 		return -1;
 	}
 	memset(rsp, 0, sizeof(*rsp));
-	rsp->time = time(NULL);
+	rsp->time = rsp->server_start = time(NULL);
 	return 0;
 }
 
@@ -87,9 +82,13 @@ int measure(struct cjmcu *cjmcu, struct response_from_server *rsp) {
 	}
 
 	// trigger the measurement of the individual sensors:
-    cjmcu->ccs811->read_sensors();
     cjmcu->bmp280->measure();
-	cjmcu->hdc1080->measure();
+    if (cjmcu->ccs811->read_sensors()) {
+		syslog(LOG_WARNING, "[CC811] read sensors failed.");
+	}
+	if (cjmcu->hdc1080->measure()) {
+		syslog(LOG_WARNING, "[HDC1080] read sensors failed.");
+	}
 
 	// get CC811 values:
 	rsp->co2 = cjmcu->ccs811->get_co2();
@@ -123,10 +122,12 @@ int create_server_socket() {
     strncpy(server.sun_path, SOCKET_FILE, sizeof(server.sun_path)-1);
     if (bind(sock, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
 		syslog(LOG_ERR, "Unable to bind socket: %s", strerror(errno));
+		close(sock);
         return -1;
     }
     if (listen(sock, 5) < 0) {
 		syslog(LOG_ERR, "Unable to listen to socket: %s", strerror(errno));
+		close(sock);
         return -1;
     }
     return sock;
@@ -146,11 +147,11 @@ int server_loop() {
     }
 
 	// initialize the sensors:	
-	syslog(LOG_ERR, "initialize sensors...");
+	syslog(LOG_INFO, "initialize sensors...");
 	CCS811 ccs811("/dev/i2c-1", 0x5a);
     HDC1080 hdc1080("/dev/i2c-1", 0x40);
     BMP280 bmp280("/dev/i2c-1", 0x76);
-	syslog(LOG_ERR, "sensors initialized...");
+	syslog(LOG_INFO, "sensors initialized...");
 
 	device.ccs811 = &ccs811;
 	device.hdc1080 = &hdc1080;
@@ -186,8 +187,7 @@ int server_loop() {
 				if (ret < 0) {
 					syslog(LOG_ERR, "recv failed: %s", strerror(errno));
 				    close(client_sock);
-				    close(sock);
-    				return -1;
+					break;
 				}
 				if (ret != sizeof(cmd)) {
 					syslog(LOG_ERR, "received invalid data size (%i/%lu)", ret, sizeof(cmd));
@@ -217,7 +217,6 @@ int server_loop() {
 					if (difference >= MEASURE_LOOP_INTERVAL) {
 						ret = measure(&device, &current_values);
 						if (ret < 0) {
-						    close(client_sock);
 						    close(sock);
     						return -1;
 						}
@@ -319,7 +318,7 @@ int create_client_socket() {
     strncpy(server.sun_path, SOCKET_FILE, sizeof(server.sun_path)-1);
 
     if (connect(sock, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
-		if (errno != 2) {
+		if ((errno != 2) && (errno != 111)) {
 			fprintf(stderr, "connect failed with code %i (%s)\n", errno, strerror(errno));
 		}
         close(sock);
@@ -363,8 +362,8 @@ int client_loop(int sock, unsigned int loop_time) {
 			return EXIT_FAILURE;
 		}
 
-		printf("T(HDC1080): %.2lf°C\tT(BMP280): %.2lf°C\tRH: %.2lf%%\tCO2: %uppm\tTVOC: %uppb\tPres: %.2lfhPa\tAge: %lis\n",
-		rsp.temp_HDC, rsp.temp_BMP, rsp.humidity, rsp.co2, rsp.tvoc, rsp.pressure, time(NULL) - rsp.time);
+		printf("T(HDC1080): %.2lf°C\tT(BMP280): %.2lf°C\tRH: %.2lf%%\tCO2: %uppm\tTVOC: %uppb\tPres: %.2lfhPa\n",
+		rsp.temp_HDC, rsp.temp_BMP, rsp.humidity, rsp.co2, rsp.tvoc, rsp.pressure);
 
 		close(sock);
 		sleep(loop_time);
@@ -412,7 +411,7 @@ int client_run(int sock, int cmd_option) {
 
 		case 'L':	// output values in a loop
 			loop_time = atoi(optarg);
-			if (loop_time <= 0) {
+			if (loop_time < 1) {
 				loop_time = DISPLAY_LOOP_INTERVAL;
 			}
 		case 'l':	// output values in a loop
@@ -460,6 +459,7 @@ int client_run(int sock, int cmd_option) {
 		    printf("CO2:                    %u ppm\n", rsp.co2);
 		    printf("TVOC:                   %u ppb\n", rsp.tvoc);
 		    printf("Age of the Values:      %li sec\n", time(NULL) - rsp.time);
+		    printf("Uptime of server proc:  %li min\n", (time(NULL) - rsp.server_start) / 60);
 			break;
 		default:
 			// should never happen...
@@ -495,7 +495,7 @@ int main(int argc, char *argv[])
 		sleep(1);
 
 		if ((retry_counter--) == 0) {
-			fprintf(stderr, "Unable to connect, giving up...");
+			fprintf(stderr, "Unable to connect, giving up...\n");
 			return EXIT_FAILURE;
 		}
     }
