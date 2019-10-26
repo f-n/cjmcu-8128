@@ -2,7 +2,9 @@
 #include "CCS811.h"
 #include "HDC1080.h"
 
+#define I2C_DEVICE	"/dev/i2c-1"
 #define CLIENT_SERVER
+
 #ifdef CLIENT_SERVER	// to select the application to build by this file
 
 #include <stdio.h>
@@ -148,9 +150,9 @@ int server_loop() {
 
 	// initialize the sensors:	
 	syslog(LOG_INFO, "initialize sensors...");
-	CCS811 ccs811("/dev/i2c-1", 0x5a);
-    HDC1080 hdc1080("/dev/i2c-1", 0x40);
-    BMP280 bmp280("/dev/i2c-1", 0x76);
+	CCS811 ccs811(I2C_DEVICE, 0x5a);
+	HDC1080 hdc1080(I2C_DEVICE, 0x40);
+	BMP280 bmp280(I2C_DEVICE, 0x76);
 	syslog(LOG_INFO, "sensors initialized...");
 
 	device.ccs811 = &ccs811;
@@ -533,9 +535,9 @@ int main(int argc, char *argv[])
 #include <iomanip>
 
 int main() {
-    CCS811 ccs811("/dev/i2c-1", 0x5a);
-    HDC1080 hdc1080("/dev/i2c-1", 0x40);
-    BMP280 bmp280("/dev/i2c-1", 0x76);
+    CCS811 ccs811(I2C_DEVICE, 0x5a);
+    HDC1080 hdc1080(I2C_DEVICE, 0x40);
+    BMP280 bmp280(I2C_DEVICE, 0x76);
 
     while (true) {
         ccs811.read_sensors();
