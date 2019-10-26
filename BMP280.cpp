@@ -75,7 +75,7 @@ void BMP280::init() {
 void BMP280::open_device() {
     i2c_fd = open(i2c_dev_name.c_str(), O_RDWR);
     if (i2c_fd < 0) {
-        std::cerr << "[BMP280] Unable to open" << i2c_dev_name << ". " << strerror(errno) << std::endl;
+        std::cerr << "[BMP280] Unable to open " << i2c_dev_name << ". " << strerror(errno) << std::endl;
         throw 1;
     }
 

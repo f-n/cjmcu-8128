@@ -153,6 +153,7 @@ int HDC1080::read_manufacturerId() {
     auto response = read_data(2);
 
     manufacturer_id = response->at(0) * 256 + response->at(1);
+    return 0;
 }
 
 int HDC1080::read_serialNumber() {
