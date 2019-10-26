@@ -408,6 +408,17 @@ int client_run(int sock, int cmd_option) {
 			return EXIT_SUCCESS;
 			break;
 
+		case 'r':	// restart daemon
+			cmd.command = CMD_EXIT;
+		    if (send(sock, &cmd, sizeof(cmd), 0) < 0) {
+				fprintf(stderr, "send failed with code %i (%s)\n", errno, strerror(errno));
+				return EXIT_FAILURE;
+		    }
+			sleep(1);
+			start_server();
+			return EXIT_SUCCESS;
+			break;
+
 		case 'L':	// output values in a loop
 			loop_time = atoi(optarg);
 			if (loop_time < 1) {
@@ -490,8 +501,18 @@ int main(int argc, char *argv[])
 
     while ((sock = create_client_socket()) < 0) {
 		// no server exists -> start one...
+
+		if (cmd_option =='s') {
+			fprintf(stderr, "no server detected: nothing to do.\n");
+			return EXIT_SUCCESS;
+		}
+
 		start_server();
 		sleep(1);
+
+		if (cmd_option =='r') { // restart command: nothing more to do
+			return EXIT_SUCCESS;
+		}
 
 		if ((retry_counter--) == 0) {
 			fprintf(stderr, "Unable to connect, giving up...\n");
