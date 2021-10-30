@@ -19,6 +19,8 @@ public:
 
     double get_temperature();
 
+    uint8_t get_status();
+
     void measure();
 
 private:
@@ -28,6 +30,7 @@ private:
     time_t last_measurement = 0;
     double pressure;
     double temperature;
+    uint8_t status = 0;
 
     // Calibration values.
     uint16_t dig_T1, dig_P1;
@@ -51,6 +54,8 @@ private:
     std::unique_ptr<std::vector<uint8_t>> read_registers(uint8_t start, size_t count);
 
     uint8_t read_id();
+
+    uint8_t read_status();
 
     int reset();
 

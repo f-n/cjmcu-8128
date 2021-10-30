@@ -48,6 +48,7 @@ struct response_from_server {
 	double temp_HDC;	// measured by HDC1080
 	double temp_BMP;	// measured by BMP280
 	double pressure;	// measured by BMP280
+	uint8_t bmp280_status;	// measured by BMP280
 };
 
 struct cjmcu {
@@ -98,6 +99,7 @@ int measure(struct cjmcu *cjmcu, struct response_from_server *rsp) {
 	// get BMP280 values:
 	rsp->pressure = cjmcu->bmp280->get_pressure();
 	rsp->temp_BMP = cjmcu->bmp280->get_temperature();
+	rsp->bmp280_status = cjmcu->bmp280->get_status();
 	// get HDC1080 values:
 	rsp->humidity = cjmcu->hdc1080->get_recent_humidity();
 	rsp->temp_HDC = cjmcu->hdc1080->get_recent_temperature();
@@ -471,6 +473,7 @@ int client_run(int sock, int cmd_option) {
 		    printf("CO2:                    %u ppm\n", rsp.co2);
 		    printf("TVOC:                   %u ppb\n", rsp.tvoc);
 		    printf("Age of the Values:      %li sec\n", time(NULL) - rsp.time);
+		    printf("BMP280 status:          0x%02u\n", rsp.bmp280_status);
 		    printf("Uptime of server proc:  %li min\n", (time(NULL) - rsp.server_start) / 60);
 			break;
 		default:
@@ -556,6 +559,7 @@ int main() {
         std::cout << "\tCO2: " << std::dec << ccs811.get_co2() << "ppm";
         std::cout << "\tTVOC: " << std::dec << ccs811.get_tvoc() << "ppb";
         std::cout << "\tPres: " << std::fixed << std::setprecision(2) << bmp280.get_pressure() << "hPa";
+        std::cout << "\tStat: 0x" << std::fixed << std::setprecision(0) << std::hex << bmp280.get_status();
         std::cout << std::endl;
 
         ccs811.set_env_data(relative_humidity, (t_hdc1080 + t_bmp20) / 2);

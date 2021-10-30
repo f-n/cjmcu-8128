@@ -38,7 +38,7 @@ void BMP280::init() {
     }
 
     if (verbose) {
-        std::cout << "[BMP280] Reading calibration data" << std::endl;
+       std::cout << "[BMP280] Reading calibration data" << std::endl;
     }
     read_calibration_data();
 
@@ -149,6 +149,11 @@ void BMP280::read_calibration_data() {
     dig_P9 = (reg_data->at(23) << 8) | reg_data->at(22);
 }
 
+uint8_t BMP280::read_status() {
+    auto reg_data = read_registers(0xf3, 1);    
+    return status;
+}
+
 int BMP280::reset() {
     uint8_t cmd[] = {0xe0, 0xb6};
     return write_data(cmd, 2);
@@ -184,6 +189,8 @@ void BMP280::measure() {
     temperature = compensate_temp(temp_val);
 
     last_measurement = time(nullptr);
+    
+    status = read_status();
 }
 
 // Compensation formulae are taken from the datasheet.
@@ -218,4 +225,8 @@ double BMP280::get_temperature() {
 
 double BMP280::get_pressure() {
     return pressure;
+}
+
+uint8_t BMP280::get_status() {
+    return status;
 }
