@@ -1,6 +1,7 @@
 #include "BMP280.h"
 #include "CCS811.h"
 #include "HDC1080.h"
+#include "stateful_number.h"
 
 #define I2C_DEVICE	"/dev/i2c-1"
 #define CLIENT_SERVER
@@ -39,6 +40,19 @@ struct command_to_server {
 	uint8_t command;	// see enum commands_to_server
 };
 
+
+struct response_from_server_obj {
+	time_t server_start;// time of server start
+	time_t time;		// time stamp of measurement time
+	uint16_t co2;		// measured by CCS811
+	uint16_t tvoc;		// measured by CCS811
+	value_check<double> *humidity;	// measured by HDC1080
+	value_check<double> *temp_HDC;	// measured by HDC1080
+	value_check<double> *temp_BMP;	// measured by BMP280
+	value_check<double> *pressure;	// measured by BMP280	
+	uint8_t bmp280_status;	// measured by BMP280
+};
+
 struct response_from_server {
 	time_t server_start;// time of server start
 	time_t time;		// time stamp of measurement time
@@ -74,7 +88,8 @@ int init_response_data(struct response_from_server *rsp) {
 	return 0;
 }
 
-int measure(struct cjmcu *cjmcu, struct response_from_server *rsp) {
+int measure(struct cjmcu *cjmcu, struct response_from_server_obj *rsp) {
+	int rc;
 	if ((cjmcu == NULL) || (rsp == NULL)) {
 		syslog(LOG_ERR, "measure(): parameter error");
 		return -1;
@@ -85,28 +100,28 @@ int measure(struct cjmcu *cjmcu, struct response_from_server *rsp) {
 	}
 
 	// trigger the measurement of the individual sensors:
-    cjmcu->bmp280->measure();
-    if (cjmcu->ccs811->read_sensors()) {
-		syslog(LOG_WARNING, "[CC811] read sensors failed.");
+	cjmcu->bmp280->measure();
+	if ((rc = cjmcu->ccs811->read_sensors())) {
+		syslog(LOG_WARNING, "[CC811] read sensors failed (%i).", rc);
 	}
-	if (cjmcu->hdc1080->measure()) {
-		syslog(LOG_WARNING, "[HDC1080] read sensors failed.");
+	if ((rc = cjmcu->hdc1080->measure())) {
+		syslog(LOG_WARNING, "[HDC1080] read sensors failed (%i).", rc);
 	}
 
 	// get CC811 values:
 	rsp->co2 = cjmcu->ccs811->get_co2();
 	rsp->tvoc = cjmcu->ccs811->get_tvoc();
 	// get BMP280 values:
-	rsp->pressure = cjmcu->bmp280->get_pressure();
-	rsp->temp_BMP = cjmcu->bmp280->get_temperature();
+	rsp->pressure->set(cjmcu->bmp280->get_pressure());
+	rsp->temp_BMP->set(cjmcu->bmp280->get_temperature());
 	rsp->bmp280_status = cjmcu->bmp280->get_status();
 	// get HDC1080 values:
-	rsp->humidity = cjmcu->hdc1080->get_recent_humidity();
-	rsp->temp_HDC = cjmcu->hdc1080->get_recent_temperature();
+	rsp->humidity->set(cjmcu->hdc1080->get_recent_humidity());
+	rsp->temp_HDC->set(cjmcu->hdc1080->get_recent_temperature());
 	// timestamp of this measurement:
 	rsp->time = time(NULL);
 
-	cjmcu->ccs811->set_env_data(rsp->humidity, (rsp->temp_HDC + rsp->temp_BMP) / 2);
+	cjmcu->ccs811->set_env_data(rsp->humidity->get(), (rsp->temp_HDC->get() + rsp->temp_BMP->get()) / 2);
 
 	return 0;
 }
@@ -117,38 +132,106 @@ int create_server_socket() {
 
     sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
-		syslog(LOG_ERR, "Unable to create socket: %s", strerror(errno));
+	syslog(LOG_ERR, "Unable to create socket: %s", strerror(errno));
         return -1;
     }
-	unlink(SOCKET_FILE);
-	memset(&server, 0, sizeof(server));
+    unlink(SOCKET_FILE);
+    memset(&server, 0, sizeof(server));
     server.sun_family = AF_UNIX;
     strncpy(server.sun_path, SOCKET_FILE, sizeof(server.sun_path)-1);
+    
     if (bind(sock, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
-		syslog(LOG_ERR, "Unable to bind socket: %s", strerror(errno));
-		close(sock);
+	syslog(LOG_ERR, "Unable to bind socket: %s", strerror(errno));
+	close(sock);
         return -1;
     }
+    
     if (listen(sock, 5) < 0) {
-		syslog(LOG_ERR, "Unable to listen to socket: %s", strerror(errno));
-		close(sock);
+	syslog(LOG_ERR, "Unable to listen to socket: %s", strerror(errno));
+	close(sock);
         return -1;
     }
     return sock;
 }
 
+int init_response(struct response_from_server_obj *p) {
+
+	if (p) {
+		memset(p, 0, sizeof(*p));
+		p->humidity = new value_check<double>(10.0, 600);
+		if (!p->humidity) {
+			return -1;
+		}
+		p->temp_HDC = new value_check<double>(10.0, 600);
+		if (!p->temp_HDC) {
+			delete p->humidity;
+			return -1;
+		}
+		p->temp_BMP = new value_check<double>(10.0, 600);
+		if (!p->temp_BMP) {
+			delete p->humidity;
+			delete p->temp_HDC;
+			return -1;
+		}
+		p->pressure = new value_check<double>(80.0, 600);
+		if (!p->pressure) {
+			delete p->humidity;
+			delete p->temp_HDC;
+			delete p->temp_BMP;
+			return -1;
+		}
+		p->time = p->server_start = time(NULL);
+		
+		// p->pressure->enable_debug();
+	} else {
+		return -1;
+	}
+	return 0;
+}
+
+void exit_response(struct response_from_server_obj *p) {
+
+	if (p) {
+		delete p->humidity;
+		delete p->temp_HDC;
+		delete p->temp_BMP;
+		delete p->pressure;
+	}
+}
+
+void copy_response(struct response_from_server_obj *s, struct response_from_server *d) {
+
+	if ((s) && (d)) {
+		d->server_start = s->server_start;
+		d->time = s->time;
+		d->co2 = s->co2;
+		d->tvoc = s->tvoc;
+		d->bmp280_status = s->bmp280_status;
+		d->humidity = s->humidity->get();
+		d->temp_HDC = s->temp_HDC->get();
+		d->temp_BMP = s->temp_BMP->get();
+		d->pressure = s->pressure->get();
+	}
+}
+
 int server_loop() {
-    int ret, sock;
-    struct pollfd fd;
+    	int ret, sock;
+    	struct pollfd fd;
 	struct response_from_server current_values;
+	struct response_from_server_obj current_values_obj;
 	struct command_to_server cmd;
 	struct cjmcu device;
 	int timeout = MEASURE_LOOP_INTERVAL * 1000;
 
-    sock = create_server_socket();
-    if (sock < 0) {		
-        return -1;
-    }
+	if (init_response(&current_values_obj)) {
+		syslog(LOG_ERR, "unable to initialize data structure...");
+		return -1;	
+	}
+
+	sock = create_server_socket();
+	if (sock < 0) {		
+        	return -1;
+	}
 
 	// initialize the sensors:	
 	syslog(LOG_INFO, "initialize sensors...");
@@ -162,7 +245,7 @@ int server_loop() {
 	device.bmp280 = &bmp280;
 
 	init_response_data(&current_values);
-    measure(&device, &current_values); // initial measurement
+	measure(&device, &current_values_obj); // initial measurement
 
     fd.fd = sock; 
     fd.events = POLLIN;
@@ -172,57 +255,61 @@ int server_loop() {
         switch (ret) {
             case -1:	// error
 				syslog(LOG_ERR, "poll failed: %s", strerror(errno));
-			    close(sock);
-    			return -1;
-                break;
+				close(sock);
+				return -1;
+				break;
 
             case 0:		// timeout
-                ret = measure(&device, &current_values);
+                		ret = measure(&device, &current_values_obj);
 				if (ret < 0) {
 				    close(sock);
-    				return -1;
+				    syslog(LOG_ERR, "measure() failed: %i", ret); 
+				    return -1;
 				}
 				timeout = MEASURE_LOOP_INTERVAL * 1000;
-                break;
+				break;
 
             default:	// data received from socket
 				client_sock = accept(sock, NULL, NULL);
-                ret = recv(client_sock , &cmd, sizeof(cmd), 0); // receive data from client
+				ret = recv(client_sock , &cmd, sizeof(cmd), 0); // receive data from client
 				if (ret < 0) {
-					syslog(LOG_ERR, "recv failed: %s", strerror(errno));
-				    close(client_sock);
+					syslog(LOG_ERR, "recv() failed: %s", strerror(errno));
+					close(client_sock);
 					break;
 				}
 				if (ret != sizeof(cmd)) {
-					syslog(LOG_ERR, "received invalid data size (%i/%lu)", ret, sizeof(cmd));
+					syslog(LOG_ERR, "received invalid data size (%i/%u)", ret, sizeof(cmd));
 				} else {
 					time_t difference;
 					switch (cmd.command) {
 						case CMD_EXIT:
-							//syslog(LOG_INFO, "received EXIT command");
-						    close(client_sock);
-						    close(sock);
-    						return 0;
+							syslog(LOG_INFO, "received EXIT command");
+							close(client_sock);
+							close(sock);
+							exit_response(&current_values_obj);
+							return 0;
 							break;
 						case CMD_GET_VALUES:
 							//syslog(LOG_INFO, "received GET_VALUES command");
-						    ret = send(client_sock, &current_values, sizeof(current_values), 0);
+							copy_response(&current_values_obj, &current_values);
+							ret = send(client_sock, &current_values, sizeof(current_values), 0);
 							if (ret < 0) {
-								syslog(LOG_ERR, "send failed: %s", strerror(errno));
+								syslog(LOG_ERR, "send() failed: %s", strerror(errno));
 							}		
-						    close(client_sock);	// support only one command in a connection!
+							close(client_sock);	// support only one command in a connection!
 							break;
 						default:
 							syslog(LOG_ERR, "received invalid command (%i)", cmd.command);
-						    close(client_sock);
+							close(client_sock);
 							break;
 					}
-					difference = time(NULL) - current_values.time;
+					difference = time(NULL) - current_values_obj.time;
 					if (difference >= MEASURE_LOOP_INTERVAL) {
-						ret = measure(&device, &current_values);
+						ret = measure(&device, &current_values_obj);
 						if (ret < 0) {
-						    close(sock);
-    						return -1;
+							syslog(LOG_INFO, "measure() failed %i", ret);
+							close(sock);
+							return -1;
 						}
 						timeout = MEASURE_LOOP_INTERVAL * 1000;
 					} else {
@@ -233,6 +320,9 @@ int server_loop() {
         }
     }
     close(sock);
+    exit_response(&current_values_obj);
+    syslog(LOG_INFO, "end server loop");
+    
     return 0;
 }
 
@@ -314,17 +404,17 @@ int create_client_socket() {
 
     sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
-		fprintf(stderr, "socket failed with code %i (%s)\n", errno, strerror(errno));
+	fprintf(stderr, "socket failed with code %i (%s)\n", errno, strerror(errno));
         return -1;
     }
-	memset(&server, 0, sizeof(server));
+    memset(&server, 0, sizeof(server));
     server.sun_family = AF_UNIX;
     strncpy(server.sun_path, SOCKET_FILE, sizeof(server.sun_path)-1);
 
-    if (connect(sock, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
-		if ((errno != 2) && (errno != 111)) {
-			fprintf(stderr, "connect failed with code %i (%s)\n", errno, strerror(errno));
-		}
+   if (connect(sock, (struct sockaddr *) &server, sizeof(struct sockaddr_un)) < 0) {
+    	if ((errno != 2) && (errno != 111)) {
+		fprintf(stderr, "connect failed with code %i (%s)\n", errno, strerror(errno));
+	}
         close(sock);
         return -1;
     }
@@ -348,7 +438,6 @@ void print_help(void)
 	printf("   -v			Output Summary of all available values\n");
 	printf("   -l			Output Summary of all available values in a loop\n");
 }
-
 int client_loop(int sock, unsigned int loop_time) {
 	struct command_to_server cmd;
 	struct response_from_server rsp;
@@ -466,7 +555,7 @@ int client_run(int sock, int cmd_option) {
 			return EXIT_SUCCESS;
 			break;
 		case 'v':
-		    printf("Air Pressure:           %.2lf hPa\n", rsp.pressure);
+		    printf("Air Pressure:           %.2lf hPa\n",rsp.pressure);
 		    printf("Temperature (BMP200):   %.2lf °C\n", rsp.temp_BMP);
 		    printf("Temperature (HDC1080):  %.2lf °C\n", rsp.temp_HDC);
 		    printf("Air Humidity:           %.2lf %%\n", rsp.humidity);
@@ -490,10 +579,7 @@ int client_run(int sock, int cmd_option) {
 /***************************************************************************/
 int main(int argc, char *argv[])
 {
-	struct command_to_server cmd;
-	struct response_from_server rsp;
 	int cmd_option;
-	int start_daemonized = 0;
 	int retry_counter = 3;
 	int ret, sock;
 
@@ -504,7 +590,7 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
-    while ((sock = create_client_socket()) < 0) {
+	while ((sock = create_client_socket()) < 0) {
 		// no server exists -> start one...
 
 		if (cmd_option =='s') {
@@ -523,10 +609,10 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "Unable to connect, giving up...\n");
 			return EXIT_FAILURE;
 		}
-    }
+	}
 
 	ret = client_run(sock, cmd_option);
-    close(sock);
+	close(sock);
 
 	return ret;
 }
@@ -542,7 +628,7 @@ int main() {
     HDC1080 hdc1080(I2C_DEVICE, 0x40);
     BMP280 bmp280(I2C_DEVICE, 0x76);
 
-    while (true) {
+    while (true) {5A5A5A5A5A
         ccs811.read_sensors();
         bmp280.measure();
 
@@ -559,7 +645,7 @@ int main() {
         std::cout << "\tCO2: " << std::dec << ccs811.get_co2() << "ppm";
         std::cout << "\tTVOC: " << std::dec << ccs811.get_tvoc() << "ppb";
         std::cout << "\tPres: " << std::fixed << std::setprecision(2) << bmp280.get_pressure() << "hPa";
-        std::cout << "\tStat: 0x" << std::fixed << std::setprecision(0) << std::hex << bmp280.get_status();
+        std::cout << "\tStat: 0x" << std::fixed << std::setprecision(0) << std::hex << (uint16_t)bmp280.get_status();
         std::cout << std::endl;
 
         ccs811.set_env_data(relative_humidity, (t_hdc1080 + t_bmp20) / 2);

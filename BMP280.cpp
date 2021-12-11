@@ -151,7 +151,7 @@ void BMP280::read_calibration_data() {
 
 uint8_t BMP280::read_status() {
     auto reg_data = read_registers(0xf3, 1);    
-    return status;
+    return reg_data->front();
 }
 
 int BMP280::reset() {

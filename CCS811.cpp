@@ -36,6 +36,67 @@ uint16_t CCS811::get_tvoc() {
     return tvoc;
 }
 
+int CCS811::set_measurement_mode() {
+#if (MEASUREMENT_MODE == 1)
+    if (verbose) {
+        std::cout << "[CCS811] Configuring measurement mode to Mode 1 - Constant power mode, measuring every 1 sec."
+                  << std::endl;
+    }
+    measurement_mode[0] = 0x10;
+#elif (MEASUREMENT_MODE == 2)
+    if (verbose) {
+        std::cout << "[CCS811] Configuring measurement mode to Mode 2 - Pulse heating mode IAQ measurement every 10 sec."
+                  << std::endl;
+    }
+    measurement_mode[0] = 0x20;
+#else 
+    if (verbose) {
+        std::cout << "[CCS811] Configuring measurement mode to Mode 3 -  Low power pulse heating mode IAQ measurement every 60 sec."
+                  << std::endl;
+    }
+    measurement_mode[0] = 0x30;
+#endif
+    if (write_to_mailbox(MEAS_MODE, measurement_mode, 1) < 0) {
+        throw "[CCS811] unable to set mode";        
+    }
+    std::this_thread::sleep_for(std::chrono::microseconds(15000));
+    return 0;
+}
+
+int CCS811::read_baseline() {
+    auto bl = read_mailbox(BASELINE);
+    if (bl->empty()) {
+        std::cerr << "[CCS811] Unable to read baseline register.";
+        return -1;
+    }
+
+    if (bl->size() < 2) {
+        std::cerr << "[CCS811] baseline: Mailbox not filled, size: " << bl->size() << std::endl;
+        return -2;
+    }
+    
+    baseline[0] = bl->at(0);
+    baseline[1] = bl->at(1);
+    return 0;
+}
+
+int CCS811::write_baseline() {
+
+    if ((baseline[0] == 0) && (baseline[1] == 0)) {
+        if (verbose) {
+          std::cout << "[CCS811] baseline value not set" << std::endl;
+          //set_measurement_mode();
+        }
+        return 1;
+    }
+
+    if (write_to_mailbox(BASELINE, baseline, 2) < 0) {
+        std::cerr << "[CCS811] unable to write baseline" << std::endl;
+        return -1;
+    }
+    return 0;
+}
+
 int CCS811::init() {
     if (verbose) {
         std::cout << "[CCS811] checking the hardware id..." << std::endl;
@@ -73,30 +134,7 @@ int CCS811::init() {
     }
     std::this_thread::sleep_for(std::chrono::microseconds(62500));
 
-#if (MEASUREMENT_MODE == 1)
-    if (verbose) {
-        std::cout << "[CCS811] Configuring measurement mode to Mode 1 - Constant power mode, measuring every 1 sec."
-                  << std::endl;
-    }
-    uint8_t measurement_mode[] = {0x10};
-#elif (MEASUREMENT_MODE == 2)
-    if (verbose) {
-        std::cout << "[CCS811] Configuring measurement mode to Mode 2 - Pulse heating mode IAQ measurement every 10 sec."
-                  << std::endl;
-    }
-    uint8_t measurement_mode[] = {0x20};
-#else 
-    if (verbose) {
-        std::cout << "[CCS811] Configuring measurement mode to Mode 3 -  Low power pulse heating mode IAQ measurement every 60 sec."
-                  << std::endl;
-    }
-    uint8_t measurement_mode[] = {0x30};
-#endif
-    if (write_to_mailbox(MEAS_MODE, measurement_mode, 1) < 0) {
-        throw "[CCS811] unable to set mode";        
-    }
-    std::this_thread::sleep_for(std::chrono::microseconds(15000));
-    return 0;
+    return set_measurement_mode();
 }
 
 void CCS811::open_device() {
@@ -168,8 +206,19 @@ int CCS811::read_sensors() {
     }
     if ((status->front() & 1) != 0) {
         auto error_register = read_mailbox(ERROR_ID);
+        if (error_register->empty()) {
+              return -1;
+        }
         std::cerr << "[CCS811] Error detected. Status register: 0x" << std::hex << int(status->front()) << ", Error register: " << std::hex << int(error_register->front()) << std::endl;
-        /* do not return since data is marked as ready... */
+        if (error_register->front() == 0x08) {
+              /* 0x08 -> bit 3: MAX_RESISTANCE -> The sensor resistance measurement has reached or exceeded the maximum range */
+              write_baseline();
+              /* do not return since data is marked as ready... */
+        } else {
+              return -1;
+        }
+    } else {
+        read_baseline();
     }
 
     std::this_thread::sleep_for(std::chrono::microseconds(15000));
@@ -182,12 +231,12 @@ int CCS811::read_sensors() {
     int status_byte = data->at(4);
     int err_byte = data->at(5);
 
-    if (status_byte != 0x98) {
-        std::cerr << "[CCS811] Sensor wasn't ready (0x" << std::hex << status_byte << "). Not updatingmeasurements." << std::endl;
+    if ((status_byte != 0x98) && (status_byte != 0x99)) {
+        std::cerr << "[CCS811] Sensor wasn't ready (0x" << std::hex << status_byte << "). Not updating measurements." << std::endl;
         return -1;
     }
 
-    if (err_byte != 0) {
+    if ((err_byte != 0) && (err_byte != 0x08 /* MAX_RESISTANCE */)) {
         std::cerr << "[CCS811] Error occurred while taking measurements. ERROR_ID: 0x" << std::hex << err_byte
                   << std::endl;
         return -1;
@@ -207,9 +256,9 @@ int CCS811::read_sensors() {
 int CCS811::write_data(uint8_t *buffer, size_t buffer_len) {
 #ifdef DBG
     std::cout << "[CCS811] Write: ";
-     for (size_t i = 0; i < buffer_len; i++) {
+    for (size_t i = 0; i < buffer_len; i++) {
       std::cout << "0x" << std::hex << (int)buffer[i] << " ";
-     }
+    }
     std::cout << std::endl;
 #endif
 

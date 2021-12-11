@@ -67,6 +67,8 @@ private:
     time_t last_measurement = 0;
     uint16_t co2 = 0;
     uint16_t tvoc = 0;
+    uint8_t measurement_mode[1] = {0x00};
+    uint8_t baseline[2] = {0x00, 0x00};
 
     MailboxInfo mailbox_info(Mailbox m) {
         // These values should correspond to the Mailbox values above.
@@ -107,6 +109,12 @@ private:
     int init();
 
     void open_device();
+
+    int set_measurement_mode();
+    
+    int read_baseline();
+
+    int write_baseline();
 
     std::unique_ptr<std::vector<uint8_t>> read_mailbox(Mailbox m, uint32_t delay_mys=62500);
 
